@@ -1,27 +1,33 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-app = FastAPI()
+import os
+from dotenv import load_dotenv
+import telebot
+import requests
+from binance.client import Client
 
-class Msg(BaseModel):
-    msg: str
+load_dotenv()
 
+telegram_token = os.getenv('TELEGRAM_BOT_TOKEN')
 
-@app.get("/")
-async def root():
-    return {"message": "Hello World. Welcome to FastAPI!"}
+bot = telebot.TeleBot(telegram_token)
+client = Client()
 
+def get_top_coins():
+    response = requests.get('https://api.binance.com/api/v3/ticker/24hr')
+    data = response.json()
+    volumes = [(coin['symbol'], float(coin['volume']), float(coin['lastPrice']), coin['symbol'][-4:]=="USDT") for coin in data]
+    volumes_sorted = sorted(volumes, key=lambda x: x[1]*x[2], reverse=True)
+    top_coins = [coin for coin in volumes_sorted if coin[0].endswith('USDT')][:10]
+    return top_coins
 
-@app.get("/path")
-async def demo_get():
-    return {"message": "This is /path endpoint, use a post request to transform the text to uppercase"}
+@bot.message_handler(commands=['top'])
+def send_top_coins(message):
+    top_coins = get_top_coins()
+    text = "Top 10 monedas con mayor volumen de negociación en las últimas 24 horas:\n"
+    for i, coin in enumerate(top_coins):
+        text += f"{i+1}. {coin[0]} ({coin[2]} USDT)\n"
+    bot.reply_to(message, text)
 
-
-@app.post("/path")
-async def demo_post(inp: Msg):
-    return {"message": inp.msg.upper()}
-
-
-@app.get("/path/{path_id}")
-async def demo_get_path_id(path_id: int):
-    return {"message": f"This is /path/{path_id} endpoint, use post request to retrieve result"}
+bot.polling()
